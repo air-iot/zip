@@ -8,9 +8,11 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"hash"
 	"hash/crc32"
 	"io"
+	"unicode/utf8"
 )
 
 // TODO(adg): support zip file comments
@@ -210,6 +212,21 @@ func (w *Writer) CreateHeader(fh *FileHeader) (io.Writer, error) {
 		return nil, errors.New("archive/zip: invalid duplicate FileHeader")
 	}
 
+	// 检测文件名和注释是否为 utf-8 编码
+	utf8Valid1, _ := DetectUTF8(fh.Name)
+	utf8Valid2, _ := DetectUTF8(fh.Comment)
+
+	// 要求文件名和注释的编码必须一致
+	if utf8Valid1 != utf8Valid2 {
+		return nil, fmt.Errorf("the charset of filename(UTF8: %v) and comment(UTF8: %v) must be consistent", utf8Valid1, utf8Valid2)
+	}
+
+	if utf8Valid1 {
+		fh.Flags |= 0x800
+	} else {
+		fh.Flags &^= 0x800
+	}
+
 	fh.Flags |= 0x8 // we will write a data descriptor
 	// TODO(alex): Look at spec and see if these need to be changed
 	// when using encryption.
@@ -403,4 +420,27 @@ func (b *writeBuf) uint32(v uint32) {
 func (b *writeBuf) uint64(v uint64) {
 	binary.LittleEndian.PutUint64(*b, v)
 	*b = (*b)[8:]
+}
+
+// DetectUTF8 reports whether s is a valid UTF-8 string, and whether the string
+// must be considered UTF-8 encoding (i.e., not compatible with CP-437, ASCII,
+// or any other common encoding).
+func DetectUTF8(s string) (valid, require bool) {
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		// Officially, ZIP uses CP-437, but many readers use the system's
+		// local character encoding. Most encoding are compatible with a large
+		// subset of CP-437, which itself is ASCII-like.
+		//
+		// Forbid 0x7e and 0x5c since EUC-KR and Shift-JIS replace those
+		// characters with localized currency and overline characters.
+		if r < 0x20 || r > 0x7d || r == 0x5c {
+			if !utf8.ValidRune(r) || (r == utf8.RuneError && size == 1) {
+				return false, false
+			}
+			require = true
+		}
+	}
+	return true, require
 }

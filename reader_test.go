@@ -605,3 +605,16 @@ func TestIssue11146(t *testing.T) {
 	}
 	r.Close()
 }
+
+func TestReaderUTF8(t *testing.T) {
+	//path := "C:\\Users\\chenp\\Downloads\\乱码问题.zip"
+	path := "C:\\Users\\chenp\\Downloads\\陈鹏超测试项目_媒体库 (1).zip"
+	reader, err := OpenReader(path)
+	if err != nil {
+		t.Fatalf("Unable to open file: %v, %+v", path, err)
+	}
+
+	for _, file := range reader.File {
+		t.Logf("%s == %s", file.Name, file.Comment)
+	}
+}
